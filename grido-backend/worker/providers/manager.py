@@ -77,7 +77,7 @@ class ProviderManager:
         
         # Higgsfield (nuevo provider)
         if not os.getenv("DISABLE_HIGGSFIELD", "false").lower() == "true":
-            higgsfield = HiggsfieldVideoProvider()
+            higgsfield = HiggsfieldVideoProvider()  # Usa HIGGSFIELD_API_KEY_ID y HIGGSFIELD_API_KEY_SECRET del env
             if higgsfield.is_available():
                 self.video_providers.append(higgsfield)
                 logger.info("Higgsfield video provider available")
@@ -546,15 +546,15 @@ class ProviderManager:
                         "-y", str(intro_with_audio_path)
                     ], check=True, capture_output=True)
                     
-            # Componer con overlaps
-            return self._compose_videos_with_overlaps(
-                intro_with_audio_path,
-                complete_video,
-                outro_video,
-                output_path,
-                video_id,
-            )
-                
+                    # Componer con overlaps
+                    return self._compose_videos_with_overlaps(
+                        intro_with_audio_path,
+                        heygen_video,
+                        outro_video,
+                        output_path,
+                        video_id,
+                    )
+                    
                 except Exception as e2:
                     logger.warning(f"[{video_id}] Strategy 2 failed: {str(e2)}")
                     logger.info(f"[{video_id}] Falling back to Strategy 3: TTS + base video (no lip-sync)")

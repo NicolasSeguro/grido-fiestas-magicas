@@ -25,9 +25,16 @@ class SyncLabsLipsyncProvider(LipsyncProvider):
             api_key: Sync Labs API key (defaults to SYNCLABS_API_KEY env var)
         """
         self.api_key = api_key or os.getenv("SYNCLABS_API_KEY")
-        # Sync Labs API - verificar documentación actualizada para el endpoint correcto
-        # Puede ser: https://api.synclabs.so o https://synclabs.so/api
-        self.api_base_url = os.getenv("SYNCLABS_API_BASE_URL", "https://api.synclabs.so")
+        # Sync Labs API - según documentación: https://docs.sync.so
+        # Probar diferentes variantes de endpoint
+        self.api_base_url = os.getenv("SYNCLABS_API_BASE_URL", "https://api.sync.so")
+        # Alternativas a probar si el principal falla:
+        self.api_base_urls = [
+            "https://api.sync.so",
+            "https://api.synclabs.so",
+            "https://sync.so/api",
+            "https://synclabs.so/api",
+        ]
         self.poll_interval = 5  # seconds
         self.max_poll_time = 600  # 10 minutes max
     
@@ -72,18 +79,40 @@ class SyncLabsLipsyncProvider(LipsyncProvider):
     
     def _upload_file(self, file_path: Path) -> str:
         """Upload file to Sync Labs and return URL."""
-        url = f"{self.api_base_url}/v1/upload"
+        # Probar diferentes endpoints y estructuras
+        endpoints_to_try = [
+            f"{self.api_base_url}/v1/upload",
+            f"{self.api_base_url}/upload",
+            f"{self.api_base_url}/api/v1/upload",
+        ]
         
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-        }
+        headers_variants = [
+            {"Authorization": f"Bearer {self.api_key}"},
+            {"X-API-Key": self.api_key},
+            {"Authorization": f"ApiKey {self.api_key}"},
+        ]
         
-        with open(file_path, "rb") as f:
-            files = {"file": (file_path.name, f, "application/octet-stream")}
-            response = requests.post(url, headers=headers, files=files, timeout=300)
-            response.raise_for_status()
-            result = response.json()
-            return result.get("url") or result.get("file_url")
+        last_error = None
+        for base_url in self.api_base_urls:
+            for endpoint_suffix in ["/v1/upload", "/upload", "/api/v1/upload"]:
+                url = f"{base_url}{endpoint_suffix}"
+                for headers in headers_variants:
+                    try:
+                        with open(file_path, "rb") as f:
+                            files = {"file": (file_path.name, f, "application/octet-stream")}
+                            response = requests.post(url, headers=headers, files=files, timeout=300)
+                            if response.status_code == 200 or response.status_code == 201:
+                                result = response.json()
+                                file_url = result.get("url") or result.get("file_url") or result.get("data", {}).get("url")
+                                if file_url:
+                                    return file_url
+                            else:
+                                last_error = f"{url} returned {response.status_code}: {response.text[:200]}"
+                    except Exception as e:
+                        last_error = f"{url} failed: {str(e)}"
+                        continue
+        
+        raise Exception(f"Sync Labs upload failed on all endpoints. Last error: {last_error}")
     
     def _create_job(self, video_url: str, audio_url: str) -> str:
         """Create lip-sync job and return job ID."""

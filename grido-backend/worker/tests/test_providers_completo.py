@@ -18,7 +18,8 @@ import tempfile
 import time
 
 # Agregar el directorio del worker al path
-sys.path.insert(0, str(Path(__file__).parent))
+worker_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(worker_dir))
 
 # Cargar variables de entorno
 try:

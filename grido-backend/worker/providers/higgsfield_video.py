@@ -14,21 +14,24 @@ from .base import VideoProvider
 class HiggsfieldVideoProvider(VideoProvider):
     """Higgsfield video provider using their API for video generation."""
     
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key_id: Optional[str] = None, api_key_secret: Optional[str] = None):
         """
         Initialize Higgsfield video provider.
         
         Args:
-            api_key: Higgsfield API key (defaults to HIGGSFIELD_API_KEY env var)
+            api_key_id: Higgsfield API Key ID (defaults to HIGGSFIELD_API_KEY_ID env var)
+            api_key_secret: Higgsfield API Key Secret (defaults to HIGGSFIELD_API_KEY_SECRET env var)
         """
-        self.api_key = api_key or os.getenv("HIGGSFIELD_API_KEY")
+        self.api_key_id = api_key_id or os.getenv("HIGGSFIELD_API_KEY_ID")
+        self.api_key_secret = api_key_secret or os.getenv("HIGGSFIELD_API_KEY_SECRET")
         self.api_base_url = os.getenv("HIGGSFIELD_API_BASE_URL", "https://cloud.higgsfield.ai/api")
         self.poll_interval = 5  # seconds
         self.max_poll_time = 600  # 10 minutes max
     
     def is_available(self) -> bool:
-        """Check if Higgsfield is available (has API key)."""
-        return self.api_key is not None and len(self.api_key) > 0
+        """Check if Higgsfield is available (has API keys)."""
+        return (self.api_key_id is not None and len(self.api_key_id) > 0 and
+                self.api_key_secret is not None and len(self.api_key_secret) > 0)
     
     def _poll_video_status(self, task_id: str) -> Dict[str, Any]:
         """
@@ -111,7 +114,7 @@ class HiggsfieldVideoProvider(VideoProvider):
             Path to the generated video
         """
         if not self.is_available():
-            raise Exception("Higgsfield API key not configured")
+            raise Exception("Higgsfield API keys not configured (need HIGGSFIELD_API_KEY_ID and HIGGSFIELD_API_KEY_SECRET)")
         
         # Higgsfield API endpoints to try
         endpoints_to_try = [
@@ -120,10 +123,29 @@ class HiggsfieldVideoProvider(VideoProvider):
             f"{self.api_base_url}/video/generate",
         ]
         
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        # Probar diferentes métodos de autenticación
+        headers_variants = [
+            {
+                "Authorization": f"Bearer {self.api_key_id}",
+                "X-API-Key": self.api_key_secret,
+                "Content-Type": "application/json",
+            },
+            {
+                "Authorization": f"Bearer {self.api_key_secret}",
+                "X-API-Key": self.api_key_id,
+                "Content-Type": "application/json",
+            },
+            {
+                "X-API-Key-ID": self.api_key_id,
+                "X-API-Key-Secret": self.api_key_secret,
+                "Content-Type": "application/json",
+            },
+            {
+                "Authorization": f"Bearer {self.api_key_id}",
+                "X-API-Key-Secret": self.api_key_secret,
+                "Content-Type": "application/json",
+            },
+        ]
         
         # Data structures to try
         data_variants = [
@@ -156,19 +178,19 @@ class HiggsfieldVideoProvider(VideoProvider):
                     for data_variant in data_variants:
                         try:
                             response = requests.post(url, json=data_variant, headers=headers, timeout=30)
-                        if response.status_code == 200 or response.status_code == 201:
-                            result = response.json()
-                            task_id = result.get("task_id") or result.get("id") or result.get("generation_id")
-                            
-                            if task_id:
-                                break
+                            if response.status_code == 200 or response.status_code == 201:
+                                result = response.json()
+                                task_id = result.get("task_id") or result.get("id") or result.get("generation_id")
+                                
+                                if task_id:
+                                    break
+                                else:
+                                    last_error = f"Higgsfield API did not return task_id: {result}"
                             else:
-                                last_error = f"Higgsfield API did not return task_id: {result}"
-                        else:
-                            last_error = f"Higgsfield API returned {response.status_code}: {response.text}"
-                    except requests.exceptions.RequestException as e:
-                        last_error = f"Higgsfield API request failed for {url}: {str(e)}"
-                        continue
+                                last_error = f"Higgsfield API returned {response.status_code}: {response.text}"
+                        except requests.exceptions.RequestException as e:
+                            last_error = f"Higgsfield API request failed for {url}: {str(e)}"
+                            continue
                 
                 if task_id:
                     break
